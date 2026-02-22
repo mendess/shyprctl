@@ -72,7 +72,15 @@ fn request(args: &[impl AsRef<str>]) -> io::Result<()> {
 fn main() {
     let args = std::env::args().collect::<Vec<_>>();
 
+    if args.len() < 2 {
+        return;
+    }
+
     let err = match args[1].as_str() {
+        "--version" | "-v" => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         "daemon" => {
             daemon();
             Ok(())
