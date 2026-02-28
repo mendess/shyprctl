@@ -15,17 +15,13 @@ fn handle_connection(mut connection: UnixStream) -> io::Result<()> {
     let command = buffer.split_whitespace().collect::<Vec<_>>();
     println!("running command: {buffer:?}");
     let status = match &command[..] {
-        [exe @ "hyprctl", rest @ ..] => dbg!(Command::new(exe).args(rest).status())?,
-        ["reload"] => {
+        ["reload-hyprland"] => {
             std::fs::write("/tmp/reload-hyprland", "1")?;
             Command::new("hyprctl")
                 .args(["dispatch", "exit"])
                 .status()?
         }
-        _ => {
-            connection.write_all(b"invalid command")?;
-            return Ok(());
-        }
+        rest => Command::new("hyprctl").args(rest).status()?,
     };
     println!("got status: {status:?}");
     connection.write_all(status.to_string().as_bytes())?;
@@ -33,6 +29,16 @@ fn handle_connection(mut connection: UnixStream) -> io::Result<()> {
 }
 
 fn daemon() {
+    const HYPR_SIGNATURE_VAR: &str = "HYPRLAND_INSTANCE_SIGNATURE";
+    match std::env::var(HYPR_SIGNATURE_VAR) {
+        Ok(signature) => {
+            std::fs::write("/tmp/hyprland-instance-signature", signature).unwrap();
+        }
+        Err(e) => {
+            eprintln!("{HYPR_SIGNATURE_VAR} not set! (is hyprland running?): {e:?}");
+            return;
+        }
+    };
     let _ = std::fs::remove_file(SOCKET_PATH);
     let socket = UnixListener::bind(SOCKET_PATH).unwrap();
     for stream in socket.incoming() {
@@ -86,7 +92,7 @@ fn main() {
             Ok(())
         }
         "l" | "launch" => {
-            let mut opts = vec!["hyprctl", "dispatch", "exec"];
+            let mut opts = vec!["dispatch", "exec"];
             opts.extend(args[2..].iter().map(|x| x.as_str()));
             request(&opts)
         }
