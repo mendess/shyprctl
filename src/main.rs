@@ -92,7 +92,7 @@ fn main() {
             Ok(())
         }
         "l" | "launch" => {
-            let mut opts = vec!["dispatch", "exec"];
+            let mut opts = vec!["dispatch", "--", "exec"];
             opts.extend(args[2..].iter().map(|x| x.as_str()));
             request(&opts)
         }
