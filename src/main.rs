@@ -92,9 +92,8 @@ fn main() {
             Ok(())
         }
         "l" | "launch" => {
-            let mut opts = vec!["dispatch", "--", "exec"];
-            opts.extend(args[2..].iter().map(|x| x.as_str()));
-            request(&opts)
+            let exec = format!(r#"hl.dsp.exec_cmd('{}')"#, args[2..].join(" "));
+            request(&["dispatch", &exec])
         }
         _ => request(&args[1..]),
     };
