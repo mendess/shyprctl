@@ -1,27 +1,36 @@
+use serde::{Deserialize, Serialize};
 use std::{
     io::{self, BufRead, BufReader, Read, Write},
-    iter::repeat,
     os::unix::net::{UnixListener, UnixStream},
     process::Command,
 };
 
 const SOCKET_PATH: &str = "/tmp/mendess/aramanthinewall.socket";
 
+#[derive(Serialize, Deserialize)]
+struct HyprctlCmd {
+    sub_command: String,
+    args: Vec<String>,
+}
+
 fn handle_connection(mut connection: UnixStream) -> io::Result<()> {
     println!("handling connection");
     let mut reader = BufReader::new(&connection);
     let mut buffer = String::new();
     reader.read_line(&mut buffer)?;
-    let command = buffer.split_whitespace().collect::<Vec<_>>();
+    let command = serde_json::from_str::<HyprctlCmd>(&buffer)?;
     println!("running command: {buffer:?}");
-    let status = match &command[..] {
-        ["reload-hyprland"] => {
+    let status = match command.sub_command.as_str() {
+        "reload-hyprland" => {
             std::fs::write("/tmp/reload-hyprland", "1")?;
             Command::new("hyprctl")
                 .args(["dispatch", "exit"])
                 .status()?
         }
-        rest => Command::new("hyprctl").args(rest).status()?,
+        other => Command::new("hyprctl")
+            .arg(other)
+            .args(command.args)
+            .status()?,
     };
     println!("got status: {status:?}");
     connection.write_all(status.to_string().as_bytes())?;
@@ -55,17 +64,11 @@ fn daemon() {
     }
 }
 
-fn request(args: &[impl AsRef<str>]) -> io::Result<()> {
+fn request(cmd: HyprctlCmd) -> io::Result<()> {
     let mut connection = UnixStream::connect(SOCKET_PATH)?;
-    let mut buffer = args
-        .iter()
-        .map(|s| s.as_ref())
-        .zip(repeat(" "))
-        .flat_map(|(a, b)| [a, b])
-        .collect::<String>();
-    buffer.pop();
-    buffer.push('\n');
-    connection.write_all(buffer.as_bytes())?;
+    let bytes = serde_json::to_vec(&cmd).unwrap();
+    connection.write_all(&bytes)?;
+    connection.write_all(b"\n")?;
     let mut buffer = Vec::new();
     connection.read_to_end(&mut buffer)?;
     println!(
@@ -92,10 +95,16 @@ fn main() {
             Ok(())
         }
         "l" | "launch" => {
-            let exec = format!(r#"hl.dsp.exec_cmd('{}')"#, args[2..].join(" "));
-            request(&["dispatch", &exec])
+            let exec = dbg!(format!(r#"hl.dsp.exec_cmd('{}')"#, args[2..].join(" ")));
+            request(HyprctlCmd {
+                sub_command: "dispatch".to_string(),
+                args: vec![exec],
+            })
         }
-        _ => request(&args[1..]),
+        _ => request(HyprctlCmd {
+            sub_command: args[1].to_string(),
+            args: args[2..].to_vec(),
+        }),
     };
     if let Err(e) = err {
         eprintln!("request failed: {e:?}");
