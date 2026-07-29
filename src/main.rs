@@ -13,6 +13,13 @@ struct HyprctlCmd {
     args: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct Response {
+    status: Option<i32>,
+    stdout: String,
+    stderr: String,
+}
+
 fn handle_connection(mut connection: UnixStream) -> io::Result<()> {
     println!("handling connection");
     let mut reader = BufReader::new(&connection);
@@ -20,20 +27,27 @@ fn handle_connection(mut connection: UnixStream) -> io::Result<()> {
     reader.read_line(&mut buffer)?;
     let command = serde_json::from_str::<HyprctlCmd>(&buffer)?;
     println!("running command: {buffer:?}");
-    let status = match command.sub_command.as_str() {
+    let output = match command.sub_command.as_str() {
         "reload-hyprland" => {
             std::fs::write("/tmp/reload-hyprland", "1")?;
             Command::new("hyprctl")
                 .args(["dispatch", "exit"])
-                .status()?
+                .output()?
         }
         other => Command::new("hyprctl")
             .arg(other)
             .args(command.args)
-            .status()?,
+            .output()?,
     };
-    println!("got status: {status:?}");
-    connection.write_all(status.to_string().as_bytes())?;
+    println!("got status: {:?}", output.status);
+    connection.write_all(
+        &serde_json::to_vec(&Response {
+            status: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
+        .unwrap(),
+    )?;
     Ok(())
 }
 
@@ -71,10 +85,16 @@ fn request(cmd: HyprctlCmd) -> io::Result<()> {
     connection.write_all(b"\n")?;
     let mut buffer = Vec::new();
     connection.read_to_end(&mut buffer)?;
-    println!(
-        "returned: {}",
-        String::from_utf8(buffer).map_err(io::Error::other)?
-    );
+    let output = serde_json::from_slice::<Response>(&buffer)?;
+    if let Some(status) = output.status {
+        println!("returned: {}", status);
+    }
+    if !output.stdout.is_empty() {
+        println!("=====> stdout\n{}", output.stdout);
+    }
+    if !output.stderr.is_empty() {
+        println!("=====> stderr\n{}", output.stderr);
+    }
     Ok(())
 }
 
