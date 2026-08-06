@@ -115,7 +115,7 @@ fn main() {
             Ok(())
         }
         "l" | "launch" => {
-            let exec = dbg!(format!(r#"hl.dsp.exec_cmd('{}')"#, args[2..].join(" ")));
+            let exec = format!(r#"hl.dsp.exec_cmd('{}')"#, args[2..].join(" "));
             request(HyprctlCmd {
                 sub_command: "dispatch".to_string(),
                 args: vec![exec],
